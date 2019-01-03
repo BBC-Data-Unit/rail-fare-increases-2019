@@ -1,0 +1,354 @@
+---
+title: "Analysing train delay data"
+output: html_notebook
+---
+
+# Analysing train delay data
+
+This notebook details the process of analysing data on train delays. We are particularly interested in the following questions:
+
+* How many minutes of delay were caused by each identified cause (e.g. tracks, crew etc)?
+* How have delays changed over time, in total
+* ...and by cause
+* ...and by operator
+* How has the makeup of each operator's delay types changed over time - are some operators now more likely to have delays because of factors out of their control, or more likely to have delays that they could have directly prevented?
+
+## Import the data
+
+The data is in a spreadsheet [from the Office of Rail and Road](http://orr.gov.uk/statistics/published-stats/additional-datasets): *Delay minutes, PPM failures and CaSL failures by TOC and Cause, 2011-12 to 2018-19* ([final table](http://orr.gov.uk/__data/assets/excel_doc/0006/25179/delays-by-cause-by-toc.xlsx)) which has been downloaded to the same folder as this notebook. 
+
+We import the first sheet of data (showing minutes of delays by each cause and operator) using the `readxl` package function `read_excel`, removing the initial 12 rows of headings and notes along the way:
+
+```{r}
+delayminutes <- readxl::read_excel("delays-by-cause-by-toc (6).xlsx", sheet=1, skip=12, na="")
+colnames(delayminutes)
+```
+
+There are a lot of columns here - 98 in all.
+
+```{r}
+summary(delayminutes)
+```
+
+
+## Generating annual totals
+
+The data covers the years 2011-12 onwards, split into 13 four-weekly periods.
+
+There are no annual totals, so we need to create those in order to look at change across time.
+
+The first period starts in the fourth column, D.
+
+We could add those together manually...
+
+```{r}
+#Show the first period
+delayminutes[4]
+#Show the second period
+delayminutes[5]
+#Add the two together
+delayminutes[4]+delayminutes[5]
+```
+
+...but that's going to be laborious. We need to find a way to say 'add together all 13 columns.
+
+```{r}
+#Generate a sequence of 'starting point' indexes that relate to each year
+#This starts at 4, ends at the index which is the same as the number of columns in the data, and goes in steps of 13
+seq(4,length(delayminutes),13)
+#Store it
+p1indexes <- seq(4,length(delayminutes),13)
+#Remove the last item because the last few cols are totals
+p1indexes <- head(p1indexes, -1)
+#Show the headings for those indexes to test it's worked
+colnames(delayminutes)[p1indexes]
+#Loop through the indexes, and for each loop through numbers 1 to 12
+#Add the resulting column to a running total
+for(i in p1indexes){
+  #Grab the year from the column name, which is the first 7 characters
+  currentyear <- substr(colnames(delayminutes)[i],1,7)
+  #Store the minutes for the first column in the range
+  yrtotalsofar <- delayminutes[i]
+  #Now loop through 1-12 and add each of those to the current index to grab a different column
+  for (a in seq(1,12)){
+    print(i+a)
+    #Add the minutes from that column to the running total
+    yrtotalsofar <- yrtotalsofar+delayminutes[i+a]  
+  }
+  #Once out of that loop, show the last column it grabbed
+  print(colnames(delayminutes[i+a]))
+  #Create a new column containing the results
+  #see https://stackoverflow.com/questions/25165197/r-create-new-column-with-name-coming-from-variable
+  delayminutes[,currentyear] <- yrtotalsofar
+  #This repeats for each of the 13-period ranges
+}
+colnames(delayminutes)
+```
+
+Export to check
+
+```{r}
+write.csv(delayminutes,"delaymins.csv")
+```
+
+
+That makes the data 105 columns wide, so we'll create a new one with just the years
+
+```{r}
+#Calculate the index of the first column of new data
+newdataindex <- length(delayminutes)-length(p1indexes)+1
+#Test that we can use this to show the last columns of new data, from that position to the last column
+delayminutes[newdataindex:length(delayminutes)]
+#Bind that to the first 3 columns to create some new data:
+delayminutes.justyrs <- cbind(delayminutes[1:3],delayminutes[newdataindex:length(delayminutes)])
+```
+
+And export:
+
+```{r}
+write.csv(delayminutes.justyrs, "delayminsyrs.csv")
+```
+
+## Query the data 
+
+What questions do we want to ask?
+
+* How many minutes of delays did traincrew-related causes responsible for?
+* How many were due to severe weather, etc.?
+* How many were due to 'fleet'?
+* How many were 'TOC-on-self' ("Issues which the train company could have prevented")
+* What were these figures for each operator (TOC)?
+* How have these figures changed for each operator (TOC)?
+* How have the proportions changed by cause or by TOC between 2011 and the latest figures?
+
+Let's get the data frame working in `sqldf`:
+
+```{r}
+#SQL interprets periods to indicate a table.field relationship, so we need to create a data frame without a period
+#We need to remove the grand totals anyway so let's do that too:
+delayminutesyrs <- subset(delayminutes.justyrs, delayminutes.justyrs$`Delay Type` != "All Delay Minutes")
+#Show a few rows first
+sqldf::sqldf('select * from delayminutesyrs limit 10')
+```
+
+Now let's create a pivot table
+
+```{r}
+sqldf::sqldf('SELECT `Train Operating Company (TOC)`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+             GROUP BY `Train Operating Company (TOC)`
+             ORDER BY pcchange1118 DESC')
+totalminsbytoc <- sqldf::sqldf('SELECT `Train Operating Company (TOC)`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+             GROUP BY `Train Operating Company (TOC)`
+             ORDER BY pcchange1118 DESC')
+```
+
+We can make this easier by generating the query:
+
+```{r}
+#Create an empty string to add to
+querystring <- ""
+#Loop through the list of column names from col 4 on, and add them to the string
+for (i in colnames(delayminutesyrs)[4:length(delayminutesyrs)]){
+  print(i)
+  #Insert characters needed for SQL and to SUM
+  querystring <- paste(querystring,i,sep="`), SUM(`")
+}
+querystring
+#Get rid of the extra chars at the start
+querystring <- substr(querystring,5,nchar(querystring))
+querystring
+#Add chars at the end
+querystring <- paste(querystring,"`)",sep="")
+querystring
+```
+
+Now to use it:
+
+```{r}
+#Paste the string along with the rest of a query
+sqldf::sqldf(paste("SELECT `Train Operating Company (TOC)`,", querystring, "FROM delayminutesyrs 
+             GROUP BY `Train Operating Company (TOC)`"))
+
+#Store in a data frame
+yeartotals <- sqldf::sqldf(paste("SELECT `Train Operating Company (TOC)`,",querystring,"FROM delayminutesyrs 
+             GROUP BY `Train Operating Company (TOC)`"))
+```
+
+
+### Looking at train crew only
+
+```{r}
+sqldf::sqldf('
+  SELECT *, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Delay Type` IS "TOC-on-Self" 
+  AND `Category of Delay` IS "Traincrew"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+traincrewselfonly <- sqldf::sqldf('
+  SELECT *, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Delay Type` IS "TOC-on-Self" 
+  AND `Category of Delay` IS "Traincrew"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+write.csv(traincrewselfonly,"traincrewselfonly.csv")
+```
+
+And the totals for both types of traincrew delay (TOC on self and TOC on TOC)
+
+```{r}
+#delayminutesyrs$
+sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Category of Delay`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Category of Delay` IS "Traincrew"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+traincrewall <- sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Category of Delay`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Category of Delay` IS "Traincrew"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+write.csv(traincrewall,"traincrewall.csv")
+```
+
+
+### Looking at weather
+
+Let's fine out what the heading is. There should be 23 results for those which are TOC-on-self only, and 46 where it is used in another delay type too (TOC-on-TOC):
+
+```{r}
+table(delayminutesyrs$`Category of Delay`)
+```
+
+Weather is only used for one delay type so we don't need to specify that.
+
+```{r}
+sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Category of Delay`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Category of Delay` IS "Severe Weather, Autumn,  & Structures"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+weather <- sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Category of Delay`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Category of Delay` IS "Severe Weather, Autumn,  & Structures"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+write.csv(weather,"weather.csv")
+```
+
+### Delays caused by tracks
+
+The same applies to track:
+
+```{r}
+sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Category of Delay`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Category of Delay` IS "Track"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+trackdelays <- sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Category of Delay`, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Category of Delay` IS "Track"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+write.csv(trackdelays,"trackdelays.csv")
+```
+### Delays caused by fleet
+
+Fleet delays can be either TOC-on-self or TOC-on-TOC.
+
+```{r}
+sqldf::sqldf('
+  SELECT *, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Delay Type` IS "TOC-on-Self" 
+  AND `Category of Delay` IS "Fleet"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+fleetdelays.self <- sqldf::sqldf('
+  SELECT *, SUM(`2011-12`), SUM(`2017-18`), SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118 FROM delayminutesyrs 
+  WHERE `Delay Type` IS "TOC-on-Self" 
+  AND `Category of Delay` IS "Fleet"
+  GROUP BY `Train Operating Company (TOC)`
+  ORDER BY pcchange1118 DESC
+  ')
+```
+
+### TOC-on-Self as a % of total - combining tables
+
+Now we switch perspective a little. What is the total of all the TOC-on-Self delay minutes?
+
+First we grab the totals of each TOC which we need to calculate a % of each total. We have already created a very similar data frame called `totalminsbytoc`, but it's worth doing again here (and that has 5 columns, this will only have 3).
+
+```{r}
+#Calculate the totals of each TOC. We rename the columns to avoid confusion when they are later merged
+totalsbytoc <- sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`, SUM(`2011-12`) AS toctotal1112, SUM(`2017-18`) AS toctotal1718
+  FROM delayminutesyrs 
+  GROUP BY `Train Operating Company (TOC)` 
+  ')
+totalsbytoc
+```
+
+Next we generate a table showing the totals by delay type and TOC:
+
+```{r}
+#give totals name to distinguish again
+sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Delay Type`, SUM(`2011-12`) AS typetotal1112, SUM(`2017-18`) AS typetotal1718, SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118
+  FROM delayminutesyrs 
+  GROUP BY `Train Operating Company (TOC)`, `Delay Type`
+  ORDER BY `Train Operating Company (TOC)`, pcchange1118 DESC
+  ')
+typebreakdown <- sqldf::sqldf('
+  SELECT `Train Operating Company (TOC)`,`Delay Type`, SUM(`2011-12`) AS typetotal1112, SUM(`2017-18`) AS typetotal1718, SUM(`2017-18`)-SUM(`2011-12`) AS change1118, (SUM(`2017-18`)-SUM(`2011-12`))/SUM(`2011-12`) AS pcchange1118
+  FROM delayminutesyrs 
+  GROUP BY `Train Operating Company (TOC)`, `Delay Type`
+  ORDER BY `Train Operating Company (TOC)`, pcchange1118 DESC
+  ')
+write.csv(typebreakdown,"typebreakdown.csv")
+```
+Then we join that table and the one with the totals by TOC
+
+```{r}
+#Combine both tables, creating some new fields which calculate the % of each TOC's total delays attributable to each type in each period.
+sqldf::sqldf('
+  SELECT *, (typetotal1112 / toctotal1112) as pcofTOCtotal1112, (typetotal1718 / toctotal1718) as pcofTOCtotal1718, (typetotal1718 / toctotal1718)-(typetotal1112 / toctotal1112) as pointschange
+  FROM typebreakdown 
+  LEFT JOIN totalsbytoc
+  ON typebreakdown.`Train Operating Company (TOC)` = totalsbytoc.`Train Operating Company (TOC)`
+  ')
+#Now store the results
+toctypepcchange <- sqldf::sqldf('
+  SELECT *, (typetotal1112 / toctotal1112) as pcofTOCtotal1112, (typetotal1718 / toctotal1718) as pcofTOCtotal1718, (typetotal1718 / toctotal1718)-(typetotal1112 / toctotal1112) as pointschange
+  FROM typebreakdown 
+  LEFT JOIN totalsbytoc
+  ON typebreakdown.`Train Operating Company (TOC)` = totalsbytoc.`Train Operating Company (TOC)`
+  ')
+#Export as CSV
+write.csv(toctypepcchange, "toctypepcchange.csv")
+```
+
+We can see which operators have had the biggest increase in TOC-on-self delays by filtering and sorting
+
+```{r}
+#Create a subset that only shows the TOC on self delay hours
+toctypepcchange.tosonly <- subset(toctypepcchange, toctypepcchange$`Delay Type` == "TOC-on-Self")
+#Attach it to sort it
+attach(toctypepcchange.tosonly)
+#Sort by pointschange, descending
+toctypepcchange.ordered <- toctypepcchange.tosonly[order(-pointschange),] 
+#Show the results
+toctypepcchange.ordered
+#Detach it
+detach(toctypepcchange.tosonly)
+```
+
+

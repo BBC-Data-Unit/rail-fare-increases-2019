@@ -1,0 +1,466 @@
+---
+title: "Analysing train company tweets"
+output: html_notebook
+---
+
+# Analysing train company tweets
+
+This notebook details the process of analysing tweets by train company accounts.
+
+We are interested in the following questions:
+
+* Which terms appear most frequently in the tweets?
+* How does that term frequency change over time?
+* Who uses those terms most/least?
+* Which accounts are most active (in terms of being responded to)?
+
+## Import the data
+
+First we need to import the data, which is over 100,000 tweets. There are a few ways of doing this: by using the link to the latest CSV, online...
+
+```{r, eval=FALSE, include=FALSE}
+#DON'T run this code - it will take too long!
+#store the location of the CSV
+csvurl <- "https://premium.scraperwiki.com/3epab2y/iyjilhnvxo69dnp/cgi-bin/csv/traincompanytweets.csv"
+#import the data
+tweetsdata <- read.csv(csvurl, stringsAsFactors = FALSE)
+```
+
+...or by using the API endpoint which provides it in JSON:
+
+```{r, eval=FALSE, include=FALSE}
+#Don't run this code either, as it will only provide a sample to work with
+#install.packages("jsonlite")
+#Activate the json package - uncomment the line above to install it first if you get an error
+library(jsonlite)
+library(httr)
+#Store the URL which queries the scraper's API for all tweets
+#This is limited to 100 for testing purposes
+jsonurl <- "https://premium.scraperwiki.com/3epab2y/iyjilhnvxo69dnp/sql/?q=%20select%20*%0A%20from%20traincompanytweets%20%0Alimit%20100"
+tweets100 <- jsonlite::fromJSON(jsonurl)
+```
+
+You can also use this to get the results of SQL queries:
+
+```{r}
+countbyaccount <- jsonlite::fromJSON("https://premium.scraperwiki.com/3epab2y/iyjilhnvxo69dnp/sql/?q=%20select%20count(*)%2C%20account%0A%20from%20traincompanytweets%20%0A%20group%20by%20account%0A%20order%20by%20count(*)%20desc")
+countbyaccount
+```
+
+
+...Or by importing a local file (the disadvantage of this is that it is not a live link to the latest data):
+
+```{r}
+#Store the filename
+csvfile = "traincompanytweets.csv"
+tweets <- read.csv(csvfile)
+```
+
+Next some overview of accounts:
+
+```{r}
+table(tweets$account)
+```
+
+And a summary of columns:
+
+```{r}
+summary(tweets)
+```
+## Filter down
+
+Some accounts publish too infrequently and need to be removed:
+
+```{r}
+#Remove tweets by two accounts:
+tweets <- subset(tweets, tweets$account != "Elizabethline")
+tweets <- subset(tweets, tweets$account != "NRE_TfLRail")
+```
+
+Let's check it again:
+
+```{r}
+sqldf::sqldf("SELECT count(*) as tweets, account 
+             FROM tweets
+             GROUP BY account
+             ORDER BY tweets")
+```
+
+That's good: we only have accounts with more than 3000 tweets. What about those with no account name?
+
+```{r}
+sqldf::sqldf("SELECT *
+             FROM tweets 
+             WHERE account = ''
+             LIMIT 10")
+```
+
+Some are identifiable but most would need further scraping, so let's remove them for the purposes of this analysis.
+
+```{r}
+tweets <- subset(tweets, tweets$account != "")
+```
+
+## Using lubridate to clean dates
+
+Because the dates are stored as strings, we need to extract and convert parts of those strings into data that can be understood as dates by R. The `lubridate` library is [designed for this](https://r4ds.had.co.nz/data-import.html#readr-datetimes):
+
+```{r}
+#Install the tidyverse package
+library(tidyverse)
+#Activate the lubridate library which is part of that, 
+library(lubridate)
+#Store an example so we can see it to work with
+dateeg <- "Fri Oct 05 17:23:36 +0000 2018"
+#Count how many characters in that, so we can use substr
+nchar(dateeg)
+#We could extract parts of the date as strings, based on their position...
+tweets$tweetweekday <- substr(tweets$tweetdate,0,3)
+tweets$tweetmonth <- substr(tweets$tweetdate,5,7)
+#Repeat for the others and store them as numeric to help with using later
+tweets$tweetyear <- as.numeric(substr(tweets$tweetdate,26,30))
+tweets$tweetday <- as.numeric(substr(tweets$tweetdate,9,10))
+tweets$tweethour <- as.numeric(substr(tweets$tweetdate,12,13))
+tweets$tweetmin <- as.numeric(substr(tweets$tweetdate,15,16))
+tweets$tweetsec <- as.numeric(substr(tweets$tweetdate,18,19))
+#But we could also extract them as numerical values using lubridate
+#Unfortunately, the format - day-month-day - doesn't fit a pre-existing function so we need to create a format and then pull that in using parse_date
+tweets$fulldate <- paste(substr(tweets$tweetdate,9,10),tweets$tweetmonth,tweets$tweetyear,tweets$tweethour,substr(tweets$tweetdate,15,16),tweets$tweetsec, sep="-")
+#Test 05-Oct-2018-17-23-36
+lubridate::parse_date_time("05-Oct-2018-17-23-36", "%d-%b-%Y-%H-%M-%S")
+tweets$realdate <- parse_datetime(tweets$fulldate, "%d-%b-%Y-%H-%M-%S")
+```
+
+Now we should be able to identify the earliest and latest tweets:
+
+```{r}
+min(tweets$realdate)
+max(tweets$realdate)
+```
+
+And show the earliest ones:
+
+```{r}
+attach(tweets)
+head(tweets[order(realdate),])
+detach(tweets)
+```
+
+These seem to be mostly from @tlupdates - "Retweets for fellow commuters sharing travel info built by @awhitehouse. (Official TL account is @TLRailUK and complaints page http://bit.ly/tl-complaints .)"
+
+We need to filter that out too:
+
+```{r}
+#remove tlupdates from the data
+tweets <- subset(tweets, tweets$account != "tlupdates")
+```
+
+And re-run:
+
+```{r}
+attach(tweets)
+head(tweets[order(realdate),])
+detach(tweets)
+```
+
+This time HeathrowExpress seems to have the oldest, but they're all 2018 which is better.
+
+Let's create a filtered subset which only covers a certain period.
+
+## Filtering on date: starting from Nov 20
+
+We know that northernassist tweets start on Nov 20 so we could take that as a starting date:
+
+```{r}
+tweetsnov20on <- tweets %>%
+  select(tweetdate, tweettxt, tweeturl, name, screenname, account, realdate) %>%
+  filter(realdate >= as.Date("2018-11-20") )
+table(tweetsnov20on$account)
+```
+
+
+## Which terms are most common?
+
+We are expecting that phrases like 'crew' or 'tracks' might occur particularly frequently. Let's find out which ones.
+
+First, we need to export the column of keywords:
+
+```{r}
+#This is based on steps outlined in a [blog post by John Victor Anderson](http://johnvictoranderson.org/?p=115). 
+write.csv(tweetsnov20on$tweettxt, 'tweetsastext.txt')
+```
+
+Now we re-import that data as a character object using `scan`:
+
+```{r}
+tweettext <- scan('tweetsastext.txt', what="char", sep=",")
+# We convert all text to lower case to prevent any case sensitive issues with counting
+tweettext <- tolower(tweettext)
+#Repace quotes because each tweet starts and ends with one
+tweettext <- gsub('"', '', tweettext)
+#Replace new line code with a space
+tweettext <- gsub('\n', ' ', tweettext)
+#Unescape HTML - first activate the htmltools package
+library(htmltools)
+#Then run the htmlEscape function
+tweettext <- htmltools::htmlEscape(tweettext)
+#This doesn't seem to work 100%
+```
+
+We now need to put this through a series of conversions before we can generate a table:
+
+```{r}
+#Split the text on every space
+tweettext.split <- strsplit(tweettext, " ")
+#Create a vector
+tweettextvec <- unlist(tweettext.split)
+#Convert that to a table
+tweettexttable <- table(tweettextvec)
+#remove the objects created that we no longer need
+rm(tweettext.split, tweettextvec)
+```
+
+That table is enough to create a CSV from:
+
+```{r}
+write.csv(tweettexttable, 'tweettexttable.csv')
+#read it back in
+tweetdata <- read.csv('tweettexttable.csv')
+summary(tweetdata)
+#rename the columns
+colnames(tweetdata) <- c('index', 'word', 'freq' )
+summary(tweetdata)
+```
+### Removing stopwords
+
+We could strip out stopwords from our data [using `tidytext`'s stop words](https://stackoverflow.com/questions/43441884/removing-stop-words-with-tidytext?rq=1).
+
+```{r}
+#Install tidytext which is needed for get_stopwords() 
+library(tidytext)
+#Use anti_join with stopwords fetched using get_stopwords to remove those stopwords from tweetdata and put in new object
+cleaned_tweetdata <- tweetdata %>%
+  anti_join(get_stopwords())
+```
+
+Let's use a simpler approach with `gsub` to remove punctuation
+
+```{r}
+#gsub is used to replace any comma with nothing ""
+#the results are used to create a new column
+cleaned_tweetdata$wordnopunc <- gsub(",","",cleaned_tweetdata$word)
+#That new column is overwritten with each new clean
+cleaned_tweetdata$wordnopunc <- gsub("-","",cleaned_tweetdata$wordnopunc)
+cleaned_tweetdata$wordnopunc <- gsub("!","",cleaned_tweetdata$wordnopunc)
+cleaned_tweetdata$wordnopunc <- gsub("'","",cleaned_tweetdata$wordnopunc)
+cleaned_tweetdata$wordnopunc <- gsub('"',"",cleaned_tweetdata$wordnopunc)
+#This has to be escaped or it replaces all characters
+cleaned_tweetdata$wordnopunc <- gsub("\\.","",cleaned_tweetdata$wordnopunc)
+cleaned_tweetdata$wordnopunc <- gsub("\\?","",cleaned_tweetdata$wordnopunc)
+cleaned_tweetdata$word2 <- NULL
+```
+
+
+
+## SQL query: most common words
+
+We can bring the most frequent words to the top using `sqldf`:
+
+```{r}
+sqldf::sqldf('SELECT wordnopunc, freq 
+             FROM cleaned_tweetdata
+             ORDER BY freq DESC
+             LIMIT 100')
+```
+
+## Sorry seems to be the hardest word - but it's not the only one
+
+'Sorry' is just one type of apology. Let's add a new column that identifies variants:
+
+```{r}
+#Generate a TRUE/FALSE column which returns true if 'sorry' or 'apol' is anywhere in the text
+cleaned_tweetdata$sorry <- grepl("sorry|apol", cleaned_tweetdata$word)
+#Because 'sorry' is a TRUE/FALSE logical column, we need to use 1 or 0 to indicate that in sqldf
+#See https://stackoverflow.com/questions/41433927/sqldf-cant-read-logical-vectors-in-r
+sqldf::sqldf("SELECT * FROM cleaned_tweetdata 
+             WHERE sorry = 1
+             ORDER BY freq DESC")
+```
+
+What about a grand total:
+
+```{r}
+#Use sum to add up all the results and just show that
+sqldf::sqldf("SELECT sum(freq), sorry FROM cleaned_tweetdata 
+             GROUP BY sorry
+             ORDER BY freq DESC")
+```
+
+Those totals refer to individual words rather than tweets, so we could repeat it for the tweets instead:
+
+```{r}
+#Generate a TRUE/FALSE column which returns true if 'sorry' or 'apol' is anywhere in the text
+tweetsnov20on$sorry <- grepl("sorry|apol", ignore.case = T, tweetsnov20on$tweettxt)
+#Because 'sorry' is a TRUE/FALSE logical column, we need to use 1 or 0 to indicate that in sqldf
+#See https://stackoverflow.com/questions/41433927/sqldf-cant-read-logical-vectors-in-r
+sorrytotals <- sqldf::sqldf("SELECT count(*), sorry FROM tweetsnov20on 
+             GROUP BY sorry
+             ")
+sorrytotals
+```
+
+As a percentage of tweets...
+
+```{r}
+sorrytotals$`count(*)`[2]/sum(sorrytotals$`count(*)`)*100
+```
+
+
+## A breakdown by account
+
+We can group by account to see which ones are most sorry:
+
+```{r}
+sorrybyaccount <- sqldf::sqldf("SELECT count(*), account, sorry FROM tweetsnov20on
+             GROUP BY account, sorry
+             ")
+sorrybyaccount
+write_csv(sorrybyaccount, "sorrybyaccount.csv")
+```
+
+The worst is Northern, so let's import that data, then export it as a CSV to be analysed manually in Excel if we need:
+
+```{r}
+northernjson <- "https://premium.scraperwiki.com/3epab2y/iyjilhnvxo69dnp/sql/?q=%20select%20*%0A%20from%20traincompanytweets%20%0A%20where%20account%20is%20%22northernassist%22%0A%20"
+northerntweets <- jsonlite::fromJSON(northernjson)
+write_csv(northerntweets,"northerntweets.csv")
+```
+
+### The worst day of the week
+
+Or the worst day of the week
+
+```{r}
+#LEFT is called LEFTSTR in sqldf: https://stackoverflow.com/questions/31843373/how-to-use-right-left-to-split-a-variable-in-sqldf-as-in-leftx-n
+sorrybyweekday <- sqldf::sqldf("SELECT count(*), LEFTSTR(tweetdate, 3) AS tweetday, sorry FROM tweetsnov20on
+             GROUP BY tweetday, sorry
+             ")
+sorrybyweekday
+write_csv(sorrybyweekday, "sorrybyweekday.csv")
+```
+
+## A breakdown over time
+
+We can use the same approach to pull out each month's apologies:
+
+```{r}
+#SUBSTR is the sqldf function to extract from the middle of text, like MID in Excel
+sorrybymonth <- sqldf::sqldf("SELECT count(*), SUBSTR(tweetdate, 5,3) AS tweetday, sorry FROM tweetsnov20on
+             GROUP BY tweetday, sorry
+             ")
+sorrybymonth
+write_csv(sorrybymonth, "sorrybymonth.csv")
+```
+
+There are 12 months there, so that means different accounts' tweets cover different periods:
+
+```{r}
+#SUBSTR is the sqldf function to extract from the middle of text, like MID in Excel
+accountbymonth <- sqldf::sqldf("SELECT count(*), SUBSTR(tweetdate, 5,3) AS tweetday, account FROM tweetsnov20on
+             GROUP BY tweetday, account ORDER by account
+             ")
+accountbymonth
+write_csv(accountbymonth, "accountbymonth.csv")
+```
+
+## Other words: crew, late, london
+
+Let's add a new column that looks for 'crew' or 'staff'
+
+```{r}
+#Generate a TRUE/FALSE column which returns true if 'crew' or 'staff' is anywhere in the text
+tweetsnov20on$crew <- grepl("crew|staff", ignore.case = T,tweetsnov20on$tweettxt)
+crewtotals <- sqldf::sqldf("SELECT count(*), crew FROM tweetsnov20on 
+             GROUP BY crew
+             ")
+crewtotals
+```
+
+Or 'late' or 'delay'
+
+```{r}
+
+tweetsnov20on$late <- grepl("late|delay", ignore.case = T, tweetsnov20on$tweettxt)
+latetotals <- sqldf::sqldf("SELECT count(*), late FROM tweetsnov20on 
+             GROUP BY late
+             ")
+latetotals
+```
+
+
+Or 'fault' or 'problem'
+
+```{r}
+tweetsnov20on$fault <- grepl("fault|problem", ignore.case = T, tweetsnov20on$tweettxt)
+faulttotals <- sqldf::sqldf("SELECT count(*), fault FROM tweetsnov20on 
+             GROUP BY fault
+             ")
+faulttotals
+```
+
+Or 'carriage' or 'coaches'
+
+```{r}
+tweetsnov20on$carriage <- grepl("carriage|coach", ignore.case = T, tweetsnov20on$tweettxt)
+carriagetotals <- sqldf::sqldf("SELECT count(*), carriage FROM tweetsnov20on 
+             GROUP BY carriage
+             ")
+carriagetotals
+```
+
+
+
+Or 'compensation' or 'repay' (delay repay)
+
+```{r}
+#Generate a TRUE/FALSE column which returns true if 'crew' or 'staff' is anywhere in the text
+tweetsnov20on$compensation <- grepl("compensat|repay", ignore.case = T, tweetsnov20on$tweettxt)
+compensationtotals <- sqldf::sqldf("SELECT count(*), compensation FROM tweetsnov20on 
+             GROUP BY compensation
+             ")
+compensationtotals
+```
+
+
+
+Or 'london' 
+
+```{r}
+tweetsnov20on$london <- grepl("ondon", ignore.case = T, tweetsnov20on$tweettxt)
+londontotals <- sqldf::sqldf("SELECT count(*), london FROM tweetsnov20on 
+             GROUP BY london
+             ")
+londontotals
+```
+
+Or 'vandalism' 
+
+```{r}
+tweetsnov20on$vandal <- grepl("vandal", ignore.case = T, tweetsnov20on$tweettxt)
+vandaltotals <- sqldf::sqldf("SELECT count(*), vandal FROM tweetsnov20on 
+             GROUP BY vandal
+             ")
+vandaltotals
+```
+
+## Compensation: a breakdown by account
+
+Part of our story is about compensation, so it might be useful to group by account to see which ones mention that most:
+
+```{r}
+compensationbyaccount <- sqldf::sqldf("SELECT count(*), account, compensation FROM tweetsnov20on
+             GROUP BY account, compensation
+             ")
+compensationbyaccount
+write_csv(compensationbyaccount, "compensationbyaccount.csv")
+```

@@ -1,0 +1,24 @@
+"","Train Operating Company (TOC)","Category of Delay","SUM(`2011-12`)","SUM(`2017-18`)","change1118","pcchange1118"
+"1","TfL Rail","Severe Weather, Autumn,  & Structures",1301.599999,4643.17,3341.570001,2.5672787366067
+"2","South Western Railway","Severe Weather, Autumn,  & Structures",30130.75,80498.467992,50367.717992,1.67163837581209
+"3","Great Western Railway","Severe Weather, Autumn,  & Structures",37968.3,88268.542474,50300.242474,1.3247957499809
+"4","Arriva Trains Wales","Severe Weather, Autumn,  & Structures",22215.5,45854.013988,23638.513988,1.06405500609935
+"5","West Midlands Trains","Severe Weather, Autumn,  & Structures",25928.5,48073.38348,22144.88348,0.854074993925603
+"6","TransPennine Express","Severe Weather, Autumn,  & Structures",14248.5,25992.55047,11744.05047,0.824230653753027
+"7","East Midlands Trains","Severe Weather, Autumn,  & Structures",13726.9,24905.135486,11178.235486,0.814330656302588
+"8","Greater Anglia","Severe Weather, Autumn,  & Structures",26672.639999,46133.95199,19461.311991,0.729635761279335
+"9","Southeastern","Severe Weather, Autumn,  & Structures",41777,72129.510588,30352.510588,0.726536385762501
+"10","Northern","Severe Weather, Autumn,  & Structures",64518.679999,109831.367961,45312.687962,0.702318893732827
+"11","Chiltern Railways","Severe Weather, Autumn,  & Structures",5177.5,8785.002994,3607.502994,0.696765426170932
+"12","c2c","Severe Weather, Autumn,  & Structures",2314.5,3916.095998,1601.595998,0.691983580903003
+"13","Govia Thameslink Railway","Severe Weather, Autumn,  & Structures",53687.749998,85922.846481,32235.096483,0.600418093218673
+"14","Grand Central","Severe Weather, Autumn,  & Structures",889.5,1400.016993,510.516993,0.573937035413154
+"15","London Overground","Severe Weather, Autumn,  & Structures",8233.399999,12157.959989,3924.55999,0.47666334569882
+"16","Heathrow Express","Severe Weather, Autumn,  & Structures",982,1391.133499,409.133499,0.416632891038697
+"17","CrossCountry","Severe Weather, Autumn,  & Structures",30561.65,35961.469463,5399.81946300001,0.176686123393207
+"18","Hull Trains","Severe Weather, Autumn,  & Structures",773,904.242999,131.242999,0.169783957309185
+"19","Merseyrail","Severe Weather, Autumn,  & Structures",5088,4786.446998,-301.553002000001,-0.0592674925314466
+"20","Virgin Trains East Coast","Severe Weather, Autumn,  & Structures",18070.5,14430.651475,-3639.848525,-0.201424892781052
+"21","Virgin Trains West Coast","Severe Weather, Autumn,  & Structures",40041.5,31727.042984,-8314.457016,-0.207645992682592
+"22","ScotRail","Severe Weather, Autumn,  & Structures",106879,81618.36297,-25260.63703,-0.236347991934805
+"23","Caledonian Sleeper","Severe Weather, Autumn,  & Structures",NA,3321.962997,NA,NA
