@@ -2,6 +2,8 @@
 
 In January 2019 as rail fares increased we [published](https://www.bbc.co.uk/news/uk-england-46606525) an analysis of official data which showed that rail users were paying more for worsening delays, shortages of staff and, in some areas, an ageing fleet of carriages.
 
+The analysis included scripts in both R (analysis, visualisation) and Python (scraping).
+
 This is the fifth story the data unit has done on rail fare rises. In August 2018 we reported [Commuters 'pay fifth of salary' on season ticket](https://github.com/BBC-Data-Unit/rail-fares-salary), and 12 months before that we reported [Commuters to pay £100 more in 2018](https://github.com/BBC-Data-Unit/rail-season-ticket-rises-2018). In January 2017 we published [Rail fares: Who are the season ticket winners and losers?](https://github.com/BBC-Data-Unit/rail-season-ticket-rises) and in September 2016 we published [Rail season tickets cost 10% of net pay](https://github.com/BBC-Data-Unit/rail-season-tickets).
 
 ## Get the data
