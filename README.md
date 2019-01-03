@@ -1,10 +1,12 @@
 # Rail fare increases: Charts explain passengers' frustration
 
-In January 2019 we [reported](https://www.bbc.co.uk/news/uk-england-46606525)
+In January 2019 as rail fares increased we [published](https://www.bbc.co.uk/news/uk-england-46606525) an analysis of official data which showed that rail users were paying more for worsening delays, shortages of staff and, in some areas, an ageing fleet of carriages.
 
 This is the fifth story the data unit has done on rail fare rises. In August 2018 we reported [Commuters 'pay fifth of salary' on season ticket](https://github.com/BBC-Data-Unit/rail-fares-salary), and 12 months before that we reported [Commuters to pay £100 more in 2018](https://github.com/BBC-Data-Unit/rail-season-ticket-rises-2018). In January 2017 we published [Rail fares: Who are the season ticket winners and losers?](https://github.com/BBC-Data-Unit/rail-season-ticket-rises) and in September 2016 we published [Rail season tickets cost 10% of net pay](https://github.com/BBC-Data-Unit/rail-season-tickets).
 
 ## Get the data
+
+*The tweets data is not included here because it is too large for GitHub. However, the filtered file of tweets from November 20 onwards, is.*
 
 * ORR: [Delays by cause and operator, 20108to present (XLS)](http://orr.gov.uk/__data/assets/excel_doc/0006/25179/delays-by-cause-by-toc.xlsx)
 * CSV: [Delay minute totals by year](delayminsyrs.csv)
@@ -14,7 +16,12 @@ This is the fifth story the data unit has done on rail fare rises. In August 201
 
 ## Visualisation
 
-*
+* Tree map: Rail delays by cause and responsibility 
+* Grouped bar chart: Train delays due to staff shortages, 2017 vs 2018
+* Bar chart: Percentage of tweets saying 'sorry', 'apologies' or 'apologise' between November 20 and December 19 by train operator
+* Column chart: Compensation claims made by Northern Rail passengers during 2018, by period
+* Line chart: Age of rolling stock by operator, 2008-2018
+* Table: Rise in monthly rail season ticket fares, by route
 
 ## Scripts and code
 
